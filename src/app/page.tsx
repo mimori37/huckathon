@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useRef } from "react";
 import { supabase } from "@/lib/supabase";
-import { Hash, MessageSquare, Send, User, LogOut } from "lucide-react";
+import { Hash, MessageSquare, Send, User, LogOut, Plus, Search, Bell } from "lucide-react";
 
 type Profile = {
   id: string;
@@ -91,7 +91,6 @@ export default function Home() {
           filter: `channel_id=eq.${activeChannel.id}`,
         },
         async (payload) => {
-          // Fetch the profile for the new message to get the join
           const { data: profile } = await supabase
             .from("profiles")
             .select("username, color")
@@ -100,7 +99,7 @@ export default function Home() {
 
           const fullMessage: Message = {
             ...(payload.new as any),
-            profiles: profile || { username: "unknown", color: "text-zinc-500" }
+            profiles: profile || { username: "unknown", color: "text-slate-500" }
           };
 
           setMessages((prev) => [...prev, fullMessage]);
@@ -113,7 +112,6 @@ export default function Home() {
     };
   }, [activeChannel, user]);
 
-  // Scroll to bottom
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages]);
@@ -135,7 +133,7 @@ export default function Home() {
         localStorage.setItem("chat_user", JSON.stringify(existing));
       } else {
         const id = crypto.randomUUID();
-        const colors = ["text-blue-500", "text-rose-500", "text-emerald-500", "text-amber-500", "text-violet-500"];
+        const colors = ["text-indigo-600", "text-rose-600", "text-emerald-600", "text-amber-600", "text-violet-600"];
         const randomColor = colors[Math.floor(Math.random() * colors.length)];
 
         const { data: newUser, error } = await supabase
@@ -184,39 +182,42 @@ export default function Home() {
   };
 
   if (loading) {
-    return <div className="flex items-center justify-center h-screen bg-zinc-950 text-white font-black italic tracking-widest animate-pulse">LOADING...</div>;
+    return (
+      <div className="flex items-center justify-center h-screen bg-slate-50">
+        <div className="w-12 h-12 border-4 border-indigo-200 border-t-indigo-600 rounded-full animate-spin"></div>
+      </div>
+    );
   }
 
   if (!user) {
     return (
-      <div className="flex items-center justify-center h-screen bg-zinc-950 px-4">
-        <div className="w-full max-w-md p-10 rounded-3xl bg-zinc-900 border border-zinc-800 shadow-2xl relative overflow-hidden group">
-          <div className="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-indigo-500 via-purple-500 to-pink-500"></div>
-          <div className="flex justify-center mb-8">
-            <div className="p-4 bg-indigo-600 rounded-2xl shadow-xl shadow-indigo-600/20 rotate-3 group-hover:rotate-0 transition-transform duration-500">
-              <MessageSquare className="w-10 h-10 text-white" />
+      <div className="flex items-center justify-center h-screen bg-slate-50 px-4">
+        <div className="w-full max-w-md p-10 rounded-3xl bg-white border border-slate-200 soft-shadow relative overflow-hidden">
+          <div className="absolute top-0 left-0 w-full h-1.5 bg-gradient-to-r from-indigo-500 to-violet-500"></div>
+          <div className="flex justify-center mb-10">
+            <div className="p-4 bg-indigo-50 rounded-2xl">
+              <MessageSquare className="w-10 h-10 text-indigo-600" />
             </div>
           </div>
-          <h1 className="text-3xl font-black text-white text-center mb-2 tracking-tight">Huckathon Chat</h1>
-          <p className="text-zinc-500 text-center mb-10 text-sm font-medium">参加するにはユーザー名を入力してください</p>
+          <h1 className="text-3xl font-bold text-slate-900 text-center mb-2 tracking-tight">Huckathon</h1>
+          <p className="text-slate-500 text-center mb-10 text-sm font-medium">参加するにはユーザー名を入力してください</p>
 
-          <form onSubmit={handleLogin} className="space-y-5">
-            <div>
-              <label className="block text-[10px] font-black text-zinc-600 uppercase tracking-[0.3em] mb-3 px-1">Identity</label>
+          <form onSubmit={handleLogin} className="space-y-6">
+            <div className="space-y-2">
+              <label className="text-[11px] font-bold text-slate-400 uppercase tracking-widest px-1">Your Identity</label>
               <input
                 type="text"
                 value={username}
                 onChange={(e) => setUsername(e.target.value)}
                 placeholder="kenshiro"
-                className="w-full px-5 py-4 bg-zinc-950 border border-zinc-800 rounded-2xl text-white focus:outline-none focus:ring-2 focus:ring-indigo-600 transition-all font-bold placeholder:text-zinc-800 text-lg"
+                className="w-full px-5 py-4 bg-slate-50 border border-slate-100 rounded-2xl text-slate-900 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 transition-all font-semibold placeholder:text-slate-300 text-lg"
               />
             </div>
             <button
               type="submit"
-              disabled={loading}
-              className="w-full py-5 bg-indigo-600 hover:bg-indigo-500 active:scale-[0.97] text-white font-black rounded-2xl transition-all shadow-2xl shadow-indigo-600/20 mt-4 text-sm uppercase tracking-widest"
+              className="w-full py-5 bg-indigo-600 hover:bg-indigo-700 active:scale-[0.98] text-white font-bold rounded-2xl transition-all shadow-lg shadow-indigo-600/10 mt-2 text-sm uppercase tracking-widest"
             >
-              Enter Workspace
+              Start Chatting
             </button>
           </form>
         </div>
@@ -225,53 +226,72 @@ export default function Home() {
   }
 
   return (
-    <div className="flex h-screen bg-zinc-950 text-zinc-100 font-sans selection:bg-indigo-500/30">
+    <div className="flex h-screen bg-white text-slate-900 font-sans selection:bg-indigo-100">
       {/* Sidebar */}
-      <div className="w-80 bg-zinc-950 border-r border-zinc-900 flex flex-col">
-        <div className="p-6 flex items-center justify-between border-b border-zinc-900/50">
+      <div className="w-72 bg-slate-50 border-r border-slate-100 flex flex-col">
+        <div className="p-6 flex items-center justify-between">
           <div className="flex items-center gap-3">
-            <div className="w-10 h-10 bg-indigo-600 rounded-2xl flex items-center justify-center shadow-lg shadow-indigo-500/10">
+            <div className="w-9 h-9 bg-indigo-600 rounded-xl flex items-center justify-center shadow-lg shadow-indigo-600/10 ring-4 ring-white">
               <MessageSquare className="w-5 h-5 text-white" />
             </div>
-            <span className="font-black text-2xl tracking-tighter uppercase italic">HUCK</span>
+            <span className="font-bold text-xl tracking-tight text-slate-900">Huckathon</span>
+          </div>
+          <button className="p-2 text-slate-400 hover:text-slate-600 transition-colors">
+            <Bell className="w-5 h-5" />
+          </button>
+        </div>
+
+        <div className="px-6 mb-4">
+          <div className="relative">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-300" />
+            <input
+              type="text"
+              placeholder="Jump to..."
+              className="w-full bg-slate-200/50 border-none rounded-xl py-2 pl-9 pr-4 text-xs font-semibold focus:outline-none focus:ring-2 focus:ring-indigo-500/10 placeholder:text-slate-400"
+            />
           </div>
         </div>
 
-        <div className="flex-1 overflow-y-auto p-4 space-y-1 mt-2">
-          <div className="px-4 py-3 text-[10px] font-black text-zinc-600 uppercase tracking-[0.2em] flex items-center justify-between">
+        <div className="flex-1 overflow-y-auto p-3 space-y-1">
+          <div className="px-4 py-3 text-[10px] font-bold text-slate-400 uppercase tracking-[0.2em] flex items-center justify-between">
             <span>Channels</span>
-            <span className="bg-zinc-900 w-5 h-5 rounded flex items-center justify-center text-zinc-700">{channels.length}</span>
+            <Plus className="w-4 h-4 cursor-pointer hover:text-indigo-600 transition-colors" />
           </div>
           {channels.map((channel) => (
             <button
               key={channel.id}
               onClick={() => setActiveChannel(channel)}
-              className={`w-full flex items-center gap-3 px-4 py-3.5 rounded-2xl transition-all duration-300 group ${activeChannel?.id === channel.id
-                  ? "bg-zinc-900 text-white shadow-[0_4px_20px_-5px_rgba(0,0,0,0.5)] border border-zinc-800"
-                  : "text-zinc-500 hover:bg-zinc-900/40 hover:text-zinc-300"
+              className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-all group ${activeChannel?.id === channel.id
+                  ? "bg-white text-indigo-600 soft-shadow ring-1 ring-slate-100"
+                  : "text-slate-500 hover:bg-white hover:text-slate-800"
                 }`}
             >
-              <Hash className={`w-4 h-4 transition-colors ${activeChannel?.id === channel.id ? "text-indigo-400" : "text-zinc-800 group-hover:text-zinc-600"}`} />
-              <span className="font-black text-[15px] tracking-tight">{channel.name}</span>
+              <Hash className={`w-4 h-4 ${activeChannel?.id === channel.id ? "text-indigo-500" : "text-slate-300 transition-colors group-hover:text-slate-400"}`} />
+              <span className="font-bold text-[14px]">{channel.name}</span>
+              {activeChannel?.id === channel.id && (
+                <div className="ml-auto w-1.5 h-1.5 rounded-full bg-indigo-500"></div>
+              )}
             </button>
           ))}
         </div>
 
-        <div className="p-6 bg-zinc-950/80 backdrop-blur-md border-t border-zinc-900">
-          <div className="bg-zinc-900/40 p-3.5 rounded-[2rem] flex items-center gap-4 border border-zinc-900/50 group relative">
-            <div className={`w-12 h-12 rounded-2xl bg-zinc-950 flex items-center justify-center border border-zinc-800 shadow-inner overflow-hidden ${user.color}`}>
-              <User className="w-7 h-7" />
+        {/* User Profile info */}
+        <div className="p-4 m-4 bg-white rounded-2xl border border-slate-100 soft-shadow">
+          <div className="flex items-center gap-3">
+            <div className={`w-10 h-10 rounded-xl bg-slate-50 flex items-center justify-center border border-slate-100 shadow-inner ${user.color}`}>
+              <User className="w-6 h-6" />
             </div>
             <div className="flex-1 min-w-0">
-              <div className="text-[15px] font-black truncate leading-tight text-white tracking-tight">{user.username}</div>
-              <div className="flex items-center gap-1.5 mt-1">
-                <div className="w-2 h-2 rounded-full bg-emerald-500 shadow-[0_0_10px_rgba(16,185,129,0.6)] animate-pulse"></div>
-                <span className="text-[10px] text-zinc-500 uppercase tracking-[0.2em] font-black">Securely Linked</span>
+              <div className="text-sm font-bold truncate leading-tight text-slate-900">{user.username}</div>
+              <div className="flex items-center gap-1.5 mt-0.5">
+                <div className="w-1.5 h-1.5 rounded-full bg-emerald-500"></div>
+                <span className="text-[10px] text-slate-400 font-bold uppercase tracking-wider">Online</span>
               </div>
             </div>
             <button
               onClick={handleLogout}
-              className="p-2.5 text-zinc-700 hover:text-rose-500 hover:bg-rose-500/10 rounded-xl transition-all"
+              className="p-2 text-slate-300 hover:text-rose-500 transition-colors"
+              title="Logout"
             >
               <LogOut className="w-4 h-4" />
             </button>
@@ -280,77 +300,109 @@ export default function Home() {
       </div>
 
       {/* Main Chat Area */}
-      <div className="flex-1 flex flex-col bg-zinc-950">
+      <div className="flex-1 flex flex-col">
         {/* Header */}
-        <div className="h-[88px] border-b border-zinc-900/50 flex items-center px-10 justify-between bg-zinc-950/60 backdrop-blur-3xl sticky top-0 z-10">
-          <div className="flex items-center gap-4">
-            <div className="w-10 h-10 rounded-2xl bg-zinc-900 flex items-center justify-center border border-zinc-800">
-              <Hash className="w-5 h-5 text-indigo-400" />
+        <div className="h-20 border-b border-slate-100 flex items-center px-10 justify-between bg-white/80 backdrop-blur-md sticky top-0 z-10 font-bold">
+          <div className="flex items-center gap-3">
+            <div className="flex flex-col">
+              <div className="flex items-center gap-2">
+                <Hash className="w-5 h-5 text-indigo-500" />
+                <span className="font-bold text-lg tracking-tight text-slate-900">{activeChannel?.name || "Select Channel"}</span>
+              </div>
+              <span className="text-[11px] text-slate-400 font-medium ml-7">{activeChannel?.description}</span>
             </div>
-            <div>
-              <span className="font-black text-xl tracking-tight text-white leading-none block uppercase italic">{activeChannel?.name || "Select Channel"}</span>
-              <span className="text-[10px] text-zinc-550 font-bold uppercase tracking-[0.2em] mt-1.5 block opacity-50">{activeChannel?.description}</span>
+          </div>
+
+          <div className="flex items-center gap-4 text-slate-400">
+            <div className="flex -space-x-2 mr-2">
+              {[1, 2, 3].map(i => (
+                <div key={i} className="w-7 h-7 rounded-lg bg-slate-100 border-2 border-white flex items-center justify-center">
+                  <User className="w-4 h-4 text-slate-300" />
+                </div>
+              ))}
             </div>
           </div>
         </div>
 
         {/* Message List */}
-        <div className="flex-1 overflow-y-auto p-10 space-y-10 scroll-smooth">
+        <div className="flex-1 overflow-y-auto p-10 space-y-8 scroll-smooth">
           {messages.length === 0 ? (
-            <div className="h-full flex flex-col items-center justify-center text-zinc-800 space-y-4">
-              <div className="w-16 h-16 rounded-full border-2 border-dashed border-zinc-800 flex items-center justify-center">
-                <MessageSquare className="w-8 h-8 opacity-20" />
+            <div className="h-full flex flex-col items-center justify-center space-y-4">
+              <div className="p-6 bg-slate-50 rounded-full">
+                <MessageSquare className="w-10 h-10 text-slate-200" />
               </div>
-              <p className="text-xs font-black uppercase tracking-[0.3em] opacity-30">No transmissions yet</p>
+              <div className="text-center">
+                <p className="text-slate-900 font-bold">まだメッセージはありません</p>
+                <p className="text-slate-400 text-sm italic mt-1">最初のひとことを送ってみましょう！</p>
+              </div>
             </div>
           ) : (
-            messages.map((msg) => (
-              <div key={msg.id} className="flex gap-6 group animate-in fade-in slide-in-from-bottom-3 duration-700">
-                <div className={`w-12 h-12 rounded-2xl bg-zinc-900 flex items-center justify-center flex-shrink-0 border border-zinc-800 shadow-2xl transition-transform group-hover:scale-110 ${msg.profiles.color}`}>
-                  <User className="w-7 h-7" />
-                </div>
-                <div className="space-y-2">
-                  <div className="flex items-center gap-4">
-                    <span className="font-black text-white text-base tracking-tighter uppercase">{msg.profiles.username}</span>
-                    <span className="text-[10px] text-zinc-700 font-black uppercase tracking-[0.1em]">{new Date(msg.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
+            messages.map((msg, index) => {
+              const isFirstInBatch = index === 0 || messages[index - 1].user_id !== msg.user_id;
+
+              return (
+                <div key={msg.id} className={`flex gap-4 group transition-all duration-300 ${isFirstInBatch ? 'mt-6' : 'mt-1 pl-14'}`}>
+                  {isFirstInBatch && (
+                    <div className={`w-10 h-10 rounded-xl bg-slate-50 flex items-center justify-center flex-shrink-0 border border-slate-100 shadow-sm ${msg.profiles.color}`}>
+                      <User className="w-6 h-6" />
+                    </div>
+                  )}
+                  <div className="space-y-1 group">
+                    {isFirstInBatch && (
+                      <div className="flex items-center gap-2">
+                        <span className="font-bold text-[15px] text-slate-900 leading-none">{msg.profiles.username}</span>
+                        <span className="text-[10px] text-slate-400 font-medium">{new Date(msg.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
+                      </div>
+                    )}
+                    <div className="relative">
+                      <p className="text-slate-700 leading-relaxed text-[15px] max-w-4xl py-1">
+                        {msg.content}
+                      </p>
+                    </div>
                   </div>
-                  <div className="bg-zinc-900/30 border border-zinc-800/80 p-5 rounded-3xl rounded-tl-none shadow-sm max-w-3xl group-hover:border-zinc-700 transition-colors">
-                    <p className="text-zinc-300 leading-relaxed text-[16px] font-medium selection:bg-indigo-500/50">
-                      {msg.content}
-                    </p>
-                  </div>
                 </div>
-              </div>
-            ))
+              );
+            })
           )}
           <div ref={messagesEndRef} />
         </div>
 
         {/* Message Input */}
-        <div className="p-10 pt-0">
-          <form onSubmit={sendMessage} className="relative group max-w-5xl mx-auto">
-            <div className="absolute -inset-1 bg-gradient-to-r from-indigo-600 via-purple-600 to-pink-600 rounded-[2rem] blur-xl opacity-0 group-focus-within:opacity-20 transition duration-1000"></div>
-            <input
-              type="text"
-              value={newMessage}
-              onChange={(e) => setNewMessage(e.target.value)}
-              placeholder={`${activeChannel ? '#' + activeChannel.name : 'Channel'} へのメッセージ`}
-              className="relative w-full bg-zinc-950 border border-zinc-800/60 rounded-[1.8rem] px-8 py-6 text-white focus:outline-none focus:ring-2 focus:ring-indigo-600/30 transition-all font-bold pr-20 shadow-2xl placeholder:text-zinc-800 text-lg border-b-zinc-800/20"
-            />
-            <button
-              type="submit"
-              className="absolute right-4 top-1/2 -translate-y-1/2 p-4 bg-indigo-600 rounded-2xl text-white hover:bg-indigo-500 transition-all shadow-xl shadow-indigo-600/40 active:scale-90 disabled:opacity-50 disabled:cursor-not-allowed"
-              disabled={!newMessage.trim()}
-            >
-              <Send className="w-6 h-6" />
-            </button>
+        <div className="px-10 pb-8 pt-2">
+          <form onSubmit={sendMessage} className="relative group max-w-4xl mx-auto shadow-sm">
+            <div className="absolute -inset-2 bg-indigo-500/5 rounded-[2rem] scale-95 opacity-0 group-focus-within:scale-100 group-focus-within:opacity-100 transition-all duration-500"></div>
+            <div className="relative flex items-end gap-3 bg-slate-50 border border-slate-200 rounded-[1.5rem] p-3 transition-colors group-focus-within:bg-white group-focus-within:border-indigo-200">
+              <div className="p-2 mb-1.5 hover:bg-slate-200 rounded-lg transition-colors cursor-pointer text-slate-400">
+                <Plus className="w-5 h-5" />
+              </div>
+              <textarea
+                value={newMessage}
+                onChange={(e) => setNewMessage(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" && !e.shiftKey) {
+                    e.preventDefault();
+                    sendMessage(e as any);
+                  }
+                }}
+                rows={1}
+                placeholder={`${activeChannel ? '#' + activeChannel.name : 'Channel'} へのメッセージ`}
+                className="flex-1 bg-transparent border-none py-3 text-slate-900 focus:outline-none focus:ring-0 font-medium placeholder:text-slate-400 text-sm resize-none scrollbar-hide max-h-32"
+              />
+              <button
+                type="submit"
+                className="mb-1 p-3 bg-indigo-600 rounded-xl text-white hover:bg-indigo-700 transition-all shadow-md shadow-indigo-600/10 active:scale-90 disabled:opacity-20 disabled:grayscale"
+                disabled={!newMessage.trim()}
+              >
+                <Send className="w-4 h-4" />
+              </button>
+            </div>
           </form>
-          <div className="flex justify-center gap-8 mt-6">
-            <p className="text-[9px] text-zinc-700 font-bold uppercase tracking-[0.3em] opacity-50">
-              Return to Send
+          <div className="flex justify-center gap-6 mt-4 opacity-40">
+            <p className="text-[9px] text-slate-400 font-bold uppercase tracking-widest">
+              Enter to Send
             </p>
-            <p className="text-[9px] text-zinc-700 font-bold uppercase tracking-[0.3em] opacity-50">
-              Shift + Return for linebreak
+            <p className="text-[9px] text-slate-400 font-bold uppercase tracking-widest">
+              Shift + Enter for New Line
             </p>
           </div>
         </div>

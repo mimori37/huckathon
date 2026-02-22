@@ -1,8 +1,12 @@
 @import "tailwindcss";
 
 :root {
-  --background: #09090b;
-  --foreground: #fafafa;
+  --background: #ffffff;
+  --foreground: #09090b;
+  --sidebar: #f8fafc;
+  --accent: #6366f1;
+  --muted: #f1f5f9;
+  --border: #e2e8f0;
 }
 
 @theme {
@@ -22,8 +26,17 @@ body {
   .scrollbar-hide::-webkit-scrollbar {
     display: none;
   }
+
   .scrollbar-hide {
     -ms-overflow-style: none;
     scrollbar-width: none;
+  }
+
+  .glass {
+    @apply bg-white/70 backdrop-blur-md border border-white/20;
+  }
+
+  .soft-shadow {
+    box-shadow: 0 8px 30px rgba(0, 0, 0, 0.04);
   }
 }
