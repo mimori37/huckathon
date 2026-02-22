@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useRef } from "react";
 import { supabase } from "@/lib/supabase";
-import { Hash, MessageSquare, Send, User, LogOut, Plus, Search, Bell } from "lucide-react";
+import { Hash, MessageSquare, Send, User, LogOut, Plus, Search, Bell, Smile, Reply } from "lucide-react";
 
 type Profile = {
   id: string;
@@ -16,6 +16,13 @@ type Channel = {
   description: string;
 };
 
+type Reaction = {
+  id: string;
+  message_id: string;
+  user_id: string;
+  emoji_code: string;
+};
+
 type Message = {
   id: string;
   content: string;
@@ -26,7 +33,10 @@ type Message = {
     username: string;
     color: string;
   };
+  reactions: Reaction[];
 };
+
+const COMMON_EMOJIS = ["👍", "❤️", "😂", "😮", "🙌", "🔥"];
 
 export default function Home() {
   const [username, setUsername] = useState("");
@@ -69,7 +79,8 @@ export default function Home() {
         .from("messages")
         .select(`
           *,
-          profiles (username, color)
+          profiles (username, color),
+          reactions (*)
         `)
         .eq("channel_id", activeChannel.id)
         .order("created_at", { ascending: true });
@@ -80,7 +91,7 @@ export default function Home() {
     fetchMessages();
 
     // Subscribe to new messages
-    const channel = supabase
+    const messageSub = supabase
       .channel(`room:${activeChannel.id}`)
       .on(
         "postgres_changes",
@@ -99,7 +110,8 @@ export default function Home() {
 
           const fullMessage: Message = {
             ...(payload.new as any),
-            profiles: profile || { username: "unknown", color: "text-slate-500" }
+            profiles: profile || { username: "unknown", color: "text-slate-500" },
+            reactions: []
           };
 
           setMessages((prev) => [...prev, fullMessage]);
@@ -107,8 +119,39 @@ export default function Home() {
       )
       .subscribe();
 
+    // Subscribe to reaction changes
+    const reactionSub = supabase
+      .channel(`reactions:${activeChannel.id}`)
+      .on(
+        "postgres_changes",
+        {
+          event: "*",
+          schema: "public",
+          table: "reactions",
+        },
+        async (payload) => {
+          // Simplest way: just refetch messages or update local state
+          // For now, let's just update local state if the message exists
+          if (payload.eventType === "INSERT") {
+            setMessages(prev => prev.map(m =>
+              m.id === payload.new.message_id
+                ? { ...m, reactions: [...(m.reactions || []), payload.new as Reaction] }
+                : m
+            ));
+          } else if (payload.eventType === "DELETE") {
+            setMessages(prev => prev.map(m =>
+              m.id === payload.old.message_id
+                ? { ...m, reactions: (m.reactions || []).filter(r => r.id !== payload.old.id) }
+                : m
+            ));
+          }
+        }
+      )
+      .subscribe();
+
     return () => {
-      supabase.removeChannel(channel);
+      supabase.removeChannel(messageSub);
+      supabase.removeChannel(reactionSub);
     };
   }, [activeChannel, user]);
 
@@ -178,6 +221,26 @@ export default function Home() {
     if (error) {
       console.error(error);
       alert("送信に失敗しました。");
+    }
+  };
+
+  const toggleReaction = async (messageId: string, emoji: string) => {
+    if (!user) return;
+
+    const existingReaction = messages
+      .find(m => m.id === messageId)
+      ?.reactions?.find(r => r.user_id === user.id && r.emoji_code === emoji);
+
+    if (existingReaction) {
+      await supabase.from("reactions").delete().eq("id", existingReaction.id);
+    } else {
+      await supabase.from("reactions").insert([
+        {
+          message_id: messageId,
+          user_id: user.id,
+          emoji_code: emoji,
+        }
+      ]);
     }
   };
 
@@ -340,25 +403,74 @@ export default function Home() {
             messages.map((msg, index) => {
               const isFirstInBatch = index === 0 || messages[index - 1].user_id !== msg.user_id;
 
+              // Group reactions by emoji
+              const groupedReactions = (msg.reactions || []).reduce((acc, r) => {
+                acc[r.emoji_code] = (acc[r.emoji_code] || []);
+                acc[r.emoji_code].push(r);
+                return acc;
+              }, {} as Record<string, Reaction[]>);
+
               return (
-                <div key={msg.id} className={`flex gap-4 group transition-all duration-300 ${isFirstInBatch ? 'mt-6' : 'mt-1 pl-14'}`}>
+                <div key={msg.id} className={`flex gap-4 group transition-all duration-300 relative ${isFirstInBatch ? 'mt-6' : 'mt-1 pl-14'}`}>
                   {isFirstInBatch && (
                     <div className={`w-10 h-10 rounded-xl bg-slate-50 flex items-center justify-center flex-shrink-0 border border-slate-100 shadow-sm ${msg.profiles.color}`}>
                       <User className="w-6 h-6" />
                     </div>
                   )}
-                  <div className="space-y-1 group">
+                  <div className="space-y-1 group flex-1">
                     {isFirstInBatch && (
                       <div className="flex items-center gap-2">
                         <span className="font-bold text-[15px] text-slate-900 leading-none">{msg.profiles.username}</span>
                         <span className="text-[10px] text-slate-400 font-medium">{new Date(msg.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
                       </div>
                     )}
-                    <div className="relative">
+                    <div className="relative group">
                       <p className="text-slate-700 leading-relaxed text-[15px] max-w-4xl py-1">
                         {msg.content}
                       </p>
+
+                      {/* Floating actions */}
+                      <div className={`absolute -top-6 right-0 flex items-center gap-1 bg-white border border-slate-100 rounded-lg p-1 soft-shadow opacity-0 group-hover:opacity-100 transition-all z-10 translate-y-2 group-hover:translate-y-0`}>
+                        {COMMON_EMOJIS.map(emoji => (
+                          <button
+                            key={emoji}
+                            onClick={() => toggleReaction(msg.id, emoji)}
+                            className="p-1.5 hover:bg-slate-50 rounded text-sm transition-transform active:scale-125"
+                          >
+                            {emoji}
+                          </button>
+                        ))}
+                        <div className="w-px h-4 bg-slate-100 mx-1"></div>
+                        <button className="p-1.5 hover:bg-slate-50 rounded text-slate-400 hover:text-indigo-600">
+                          <Reply className="w-4 h-4" />
+                        </button>
+                        <button className="p-1.5 hover:bg-slate-50 rounded text-slate-400 hover:text-indigo-600">
+                          <Smile className="w-4 h-4" />
+                        </button>
+                      </div>
                     </div>
+
+                    {/* Rendered reactions */}
+                    {Object.keys(groupedReactions).length > 0 && (
+                      <div className="flex flex-wrap gap-1.5 mt-2">
+                        {Object.entries(groupedReactions).map(([emoji, reacts]) => {
+                          const hasReacted = reacts.some(r => r.user_id === user.id);
+                          return (
+                            <button
+                              key={emoji}
+                              onClick={() => toggleReaction(msg.id, emoji)}
+                              className={`flex items-center gap-1.5 px-2 py-0.5 rounded-full text-xs font-bold border transition-all ${hasReacted
+                                  ? "bg-indigo-50 border-indigo-200 text-indigo-600"
+                                  : "bg-white border-slate-100 text-slate-500 hover:border-slate-200"
+                                }`}
+                            >
+                              <span>{emoji}</span>
+                              <span className={hasReacted ? "text-indigo-400" : "text-slate-300"}>{reacts.length}</span>
+                            </button>
+                          )
+                        })}
+                      </div>
+                    )}
                   </div>
                 </div>
               );
