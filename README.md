@@ -1,36 +1,32 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# Huckathon
 
-## Getting Started
+モダンで清潔感のあるUIを採用した、リアルタイム・グループチャットアプリケーションです。
 
-First, run the development server:
+## 概要
 
-```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
-```
+このプロジェクトは、Next.jsとSupabaseを組み合わせて構築されたSlack風のチャットツールです。リアルタイムなメッセージ送受信に加え、リアクションやスレッド機能など、現代的なチャット体験を提供します。
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+> [!NOTE]
+> **AI制作物に関する注記**
+> このプロジェクト（コード、UIデザイン、ドキュメントを含む）は、AIアシスタント **Antigravity** によって生成・編集されました。AIによるハッカソン形式のプロトタイピングのデモンストレーションとして作成されています。
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+## 主な機能
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+- **リアルタイムメッセージ**: リロード不要で瞬時にメッセージが届きます。
+- **チャンネル管理**: `general`, `random`, `huckathon-dev` などの複数チャンネル。
+- **リアクション**: メッセージに絵文字で反応できます。
+- **スレッド**: 特定のメッセージに対して返信し、会話を整理できます。
+- **モダンUI**: ガラスモーフィズムとソフトな質感を活かしたデザイン。
 
-## Learn More
+## 技術スタック
 
-To learn more about Next.js, take a look at the following resources:
+- **Frontend**: Next.js (App Router), Tailwind CSS, Lucide React
+- **Backend**: Supabase (Postgres, Realtime)
+- **Design**: Modern Clean UI / Glassmorphism
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+## セットアップ
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
-
-## Deploy on Vercel
-
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
-
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+1. リポジトリをクローン
+2. `.env.local` に Supabase の認証情報を設定
+3. `npm install`
+4. `npm run dev`
