@@ -29,6 +29,8 @@ type Message = {
   created_at: string;
   user_id: string;
   channel_id: string;
+  parent_message_id?: string | null; // Added for threading
+  reply_count?: number; // Added for threading
   profiles: {
     username: string;
     color: string;
@@ -46,7 +48,11 @@ export default function Home() {
   const [activeChannel, setActiveChannel] = useState<Channel | null>(null);
   const [messages, setMessages] = useState<Message[]>([]);
   const [newMessage, setNewMessage] = useState("");
+  const [threadParent, setThreadParent] = useState<Message | null>(null);
+  const [threadMessages, setThreadMessages] = useState<Message[]>([]);
+  const [newThreadMessage, setNewThreadMessage] = useState("");
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const threadEndRef = useRef<HTMLDivElement>(null);
 
   // Initialize Auth
   useEffect(() => {
@@ -80,12 +86,21 @@ export default function Home() {
         .select(`
           *,
           profiles (username, color),
-          reactions (*)
+          reactions (*),
+          reply_count:messages!parent_message_id(count)
         `)
         .eq("channel_id", activeChannel.id)
+        .is("parent_message_id", null) // Fetch only root messages
         .order("created_at", { ascending: true });
 
-      if (data) setMessages(data as any);
+      if (data) {
+        // Map the reply_count from the nested structure
+        const formattedData = data.map(msg => ({
+          ...msg,
+          reply_count: msg.reply_count?.[0]?.count || 0
+        }));
+        setMessages(formattedData as any);
+      }
     };
 
     fetchMessages();
@@ -102,6 +117,8 @@ export default function Home() {
           filter: `channel_id=eq.${activeChannel.id}`,
         },
         async (payload) => {
+          if (payload.new.parent_message_id) return; // Only notify root messages here
+
           const { data: profile } = await supabase
             .from("profiles")
             .select("username, color")
@@ -111,7 +128,8 @@ export default function Home() {
           const fullMessage: Message = {
             ...(payload.new as any),
             profiles: profile || { username: "unknown", color: "text-slate-500" },
-            reactions: []
+            reactions: [],
+            reply_count: 0 // New root messages start with 0 replies
           };
 
           setMessages((prev) => [...prev, fullMessage]);
@@ -151,15 +169,101 @@ export default function Home() {
       )
       .subscribe();
 
+    // Subscribe to reply count changes for root messages
+    const replyCountSub = supabase
+      .channel(`reply_counts:${activeChannel.id}`)
+      .on(
+        "postgres_changes",
+        {
+          event: "INSERT",
+          schema: "public",
+          table: "messages",
+          filter: `channel_id=eq.${activeChannel.id}`,
+        },
+        (payload) => {
+          if (payload.new.parent_message_id) {
+            setMessages(prev => prev.map(m => {
+              if (m.id === payload.new.parent_message_id) {
+                return { ...m, reply_count: (m.reply_count || 0) + 1 };
+              }
+              return m;
+            }));
+          }
+        }
+      )
+      .subscribe();
+
+
     return () => {
       supabase.removeChannel(messageSub);
       supabase.removeChannel(reactionSub);
+      supabase.removeChannel(replyCountSub);
     };
   }, [activeChannel, user]);
+
+  // Fetch Thread Messages
+  useEffect(() => {
+    if (!threadParent || !user) {
+      setThreadMessages([]);
+      return;
+    }
+
+    const fetchThread = async () => {
+      const { data } = await supabase
+        .from("messages")
+        .select(`
+          *,
+          profiles (username, color),
+          reactions (*)
+        `)
+        .eq("parent_message_id", threadParent.id)
+        .order("created_at", { ascending: true });
+
+      if (data) setThreadMessages(data as any);
+    };
+
+    fetchThread();
+
+    const threadSub = supabase
+      .channel(`thread:${threadParent.id}`)
+      .on(
+        "postgres_changes",
+        {
+          event: "INSERT",
+          schema: "public",
+          table: "messages",
+          filter: `parent_message_id=eq.${threadParent.id}`,
+        },
+        async (payload) => {
+          const { data: profile } = await supabase
+            .from("profiles")
+            .select("username, color")
+            .eq("id", payload.new.user_id)
+            .single();
+
+          const fullMessage: Message = {
+            ...(payload.new as any),
+            profiles: profile || { username: "unknown", color: "text-slate-500" },
+            reactions: []
+          };
+
+          setThreadMessages((prev) => [...prev, fullMessage]);
+        }
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(threadSub);
+    };
+  }, [threadParent, user]);
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages]);
+
+  useEffect(() => {
+    threadEndRef.current?.scrollIntoView({ behavior: "smooth" });
+  }, [threadMessages]);
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -205,18 +309,20 @@ export default function Home() {
     setUsername("");
   };
 
-  const sendMessage = async (e: React.FormEvent) => {
+  const sendMessage = async (e: React.FormEvent, isThread = false) => {
     e.preventDefault();
-    if (!newMessage.trim() || !activeChannel || !user) return;
+    const content = isThread ? newThreadMessage : newMessage;
+    if (!content.trim() || !activeChannel || !user) return;
 
-    const content = newMessage;
-    setNewMessage("");
+    if (isThread) setNewThreadMessage("");
+    else setNewMessage("");
 
     const { error } = await supabase.from("messages").insert([
       {
         channel_id: activeChannel.id,
         user_id: user.id,
         content: content,
+        parent_message_id: isThread ? threadParent?.id : null,
       },
     ]);
 
@@ -229,9 +335,12 @@ export default function Home() {
   const toggleReaction = async (messageId: string, emoji: string) => {
     if (!user) return;
 
-    const existingReaction = messages
-      .find(m => m.id === messageId)
-      ?.reactions?.find(r => r.user_id === user.id && r.emoji_code === emoji);
+    // Check in root messages
+    let found = messages.find(m => m.id === messageId);
+    // If not found, check in thread messages
+    if (!found) found = threadMessages.find(m => m.id === messageId);
+
+    const existingReaction = found?.reactions?.find(r => r.user_id === user.id && r.emoji_code === emoji);
 
     if (existingReaction) {
       await supabase.from("reactions").delete().eq("id", existingReaction.id);
@@ -244,6 +353,95 @@ export default function Home() {
         }
       ]);
     }
+  };
+
+  const MessageItem = ({ msg, isThread = false }: { msg: Message, isThread?: boolean }) => {
+    const groupedReactions = (msg.reactions || []).reduce((acc, r) => {
+      acc[r.emoji_code] = (acc[r.emoji_code] || []);
+      acc[r.emoji_code].push(r);
+      return acc;
+    }, {} as Record<string, Reaction[]>);
+
+    return (
+      <div className={`flex gap-4 group transition-all duration-300 relative ${isThread ? 'mt-4' : 'mt-6'}`}>
+        <div className={`w-10 h-10 rounded-xl bg-slate-50 flex items-center justify-center flex-shrink-0 border border-slate-100 shadow-sm ${msg.profiles.color}`}>
+          <User className="w-6 h-6" />
+        </div>
+        <div className="space-y-1 group flex-1">
+          <div className="flex items-center gap-2">
+            <span className="font-bold text-[15px] text-slate-900 leading-none">{msg.profiles.username}</span>
+            <span className="text-[10px] text-slate-400 font-medium">{new Date(msg.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
+          </div>
+          <div className="relative group/content">
+            <p className="text-slate-700 leading-relaxed text-[15px] max-w-4xl py-1">
+              {msg.content}
+            </p>
+
+            <div className={`absolute -top-6 right-0 flex items-center gap-1 bg-white border border-slate-100 rounded-lg p-1 soft-shadow opacity-0 group-hover/content:opacity-100 transition-all z-10 translate-y-2 group-hover/content:translate-y-0`}>
+              {COMMON_EMOJIS.map(emoji => (
+                <button
+                  key={emoji}
+                  onClick={() => toggleReaction(msg.id, emoji)}
+                  className="p-1.5 hover:bg-slate-50 rounded text-sm transition-transform active:scale-125"
+                >
+                  {emoji}
+                </button>
+              ))}
+              {!isThread && (
+                <>
+                  <div className="w-px h-4 bg-slate-100 mx-1"></div>
+                  <button
+                    onClick={() => setThreadParent(msg)}
+                    className="p-1.5 hover:bg-slate-50 rounded text-slate-400 hover:text-indigo-600"
+                    title="Reply in thread"
+                  >
+                    <Reply className="w-4 h-4" />
+                  </button>
+                </>
+              )}
+            </div>
+          </div>
+
+          {Object.keys(groupedReactions).length > 0 && (
+            <div className="flex flex-wrap gap-1.5 mt-2">
+              {Object.entries(groupedReactions).map(([emoji, reacts]) => {
+                const hasReacted = reacts.some(r => r.user_id === user?.id);
+                return (
+                  <button
+                    key={emoji}
+                    onClick={() => toggleReaction(msg.id, emoji)}
+                    className={`flex items-center gap-1.5 px-2 py-0.5 rounded-full text-xs font-bold border transition-all ${hasReacted
+                        ? "bg-indigo-50 border-indigo-200 text-indigo-600"
+                        : "bg-white border-slate-100 text-slate-500 hover:border-slate-200"
+                      }`}
+                  >
+                    <span>{emoji}</span>
+                    <span className={hasReacted ? "text-indigo-400" : "text-slate-300"}>{reacts.length}</span>
+                  </button>
+                )
+              })}
+            </div>
+          )}
+
+          {!isThread && msg.reply_count !== undefined && msg.reply_count > 0 && (
+            <button
+              onClick={() => setThreadParent(msg)}
+              className="text-[11px] font-bold text-indigo-500 hover:underline mt-2 inline-block px-1"
+            >
+              {msg.reply_count} 件の返信
+            </button>
+          )}
+          {!isThread && msg.reply_count === 0 && (
+            <button
+              onClick={() => setThreadParent(msg)}
+              className="text-[11px] font-bold text-indigo-500 hover:underline mt-2 inline-block px-1"
+            >
+              スレッドを開始
+            </button>
+          )}
+        </div>
+      </div>
+    );
   };
 
   if (loading) {
@@ -291,7 +489,7 @@ export default function Home() {
   }
 
   return (
-    <div className="flex h-screen bg-white text-slate-900 font-sans selection:bg-indigo-100">
+    <div className="flex h-screen bg-white text-slate-900 font-sans selection:bg-indigo-100 overflow-hidden">
       {/* Sidebar */}
       <div className="w-72 bg-slate-50 border-r border-slate-100 flex flex-col">
         <div className="p-6 flex items-center justify-between">
@@ -325,7 +523,7 @@ export default function Home() {
           {channels.map((channel) => (
             <button
               key={channel.id}
-              onClick={() => setActiveChannel(channel)}
+              onClick={() => { setActiveChannel(channel); setThreadParent(null); }}
               className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-all group ${activeChannel?.id === channel.id
                 ? "bg-white text-indigo-600 soft-shadow ring-1 ring-slate-100"
                 : "text-slate-500 hover:bg-white hover:text-slate-800"
@@ -365,17 +563,15 @@ export default function Home() {
       </div>
 
       {/* Main Chat Area */}
-      <div className="flex-1 flex flex-col">
+      <div className="flex-1 flex flex-col min-w-0">
         {/* Header */}
-        <div className="h-20 border-b border-slate-100 flex items-center px-10 justify-between bg-white/80 backdrop-blur-md sticky top-0 z-10 font-bold">
-          <div className="flex items-center gap-3">
-            <div className="flex flex-col">
-              <div className="flex items-center gap-2">
-                <Hash className="w-5 h-5 text-indigo-500" />
-                <span className="font-bold text-lg tracking-tight text-slate-900">{activeChannel?.name || "Select Channel"}</span>
-              </div>
-              <span className="text-[11px] text-slate-400 font-medium ml-7">{activeChannel?.description}</span>
+        <div className="h-20 border-b border-slate-100 flex items-center px-10 justify-between bg-white/80 backdrop-blur-md sticky top-0 z-10 font-bold shrink-0">
+          <div className="flex flex-col">
+            <div className="flex items-center gap-2">
+              <Hash className="w-5 h-5 text-indigo-500" />
+              <span className="font-bold text-lg tracking-tight text-slate-900">{activeChannel?.name || "Select Channel"}</span>
             </div>
+            <span className="text-[11px] text-slate-400 font-medium ml-7">{activeChannel?.description}</span>
           </div>
 
           <div className="flex items-center gap-4 text-slate-400">
@@ -390,7 +586,7 @@ export default function Home() {
         </div>
 
         {/* Message List */}
-        <div className="flex-1 overflow-y-auto p-10 space-y-8 scroll-smooth">
+        <div className="flex-1 overflow-y-auto p-10 space-y-4 scroll-smooth">
           {messages.length === 0 ? (
             <div className="h-full flex flex-col items-center justify-center space-y-4">
               <div className="p-6 bg-slate-50 rounded-full">
@@ -402,88 +598,16 @@ export default function Home() {
               </div>
             </div>
           ) : (
-            messages.map((msg, index) => {
-              const isFirstInBatch = index === 0 || messages[index - 1].user_id !== msg.user_id;
-
-              // Group reactions by emoji
-              const groupedReactions = (msg.reactions || []).reduce((acc, r) => {
-                acc[r.emoji_code] = (acc[r.emoji_code] || []);
-                acc[r.emoji_code].push(r);
-                return acc;
-              }, {} as Record<string, Reaction[]>);
-
-              return (
-                <div key={msg.id} className={`flex gap-4 group transition-all duration-300 relative ${isFirstInBatch ? 'mt-6' : 'mt-1 pl-14'}`}>
-                  {isFirstInBatch && (
-                    <div className={`w-10 h-10 rounded-xl bg-slate-50 flex items-center justify-center flex-shrink-0 border border-slate-100 shadow-sm ${msg.profiles.color}`}>
-                      <User className="w-6 h-6" />
-                    </div>
-                  )}
-                  <div className="space-y-1 group flex-1">
-                    {isFirstInBatch && (
-                      <div className="flex items-center gap-2">
-                        <span className="font-bold text-[15px] text-slate-900 leading-none">{msg.profiles.username}</span>
-                        <span className="text-[10px] text-slate-400 font-medium">{new Date(msg.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
-                      </div>
-                    )}
-                    <div className="relative group">
-                      <p className="text-slate-700 leading-relaxed text-[15px] max-w-4xl py-1">
-                        {msg.content}
-                      </p>
-
-                      {/* Floating actions */}
-                      <div className={`absolute -top-6 right-0 flex items-center gap-1 bg-white border border-slate-100 rounded-lg p-1 soft-shadow opacity-0 group-hover:opacity-100 transition-all z-10 translate-y-2 group-hover:translate-y-0`}>
-                        {COMMON_EMOJIS.map(emoji => (
-                          <button
-                            key={emoji}
-                            onClick={() => toggleReaction(msg.id, emoji)}
-                            className="p-1.5 hover:bg-slate-50 rounded text-sm transition-transform active:scale-125"
-                          >
-                            {emoji}
-                          </button>
-                        ))}
-                        <div className="w-px h-4 bg-slate-100 mx-1"></div>
-                        <button className="p-1.5 hover:bg-slate-50 rounded text-slate-400 hover:text-indigo-600">
-                          <Reply className="w-4 h-4" />
-                        </button>
-                        <button className="p-1.5 hover:bg-slate-50 rounded text-slate-400 hover:text-indigo-600">
-                          <Smile className="w-4 h-4" />
-                        </button>
-                      </div>
-                    </div>
-
-                    {/* Rendered reactions */}
-                    {Object.keys(groupedReactions).length > 0 && (
-                      <div className="flex flex-wrap gap-1.5 mt-2">
-                        {Object.entries(groupedReactions).map(([emoji, reacts]) => {
-                          const hasReacted = reacts.some(r => r.user_id === user.id);
-                          return (
-                            <button
-                              key={emoji}
-                              onClick={() => toggleReaction(msg.id, emoji)}
-                              className={`flex items-center gap-1.5 px-2 py-0.5 rounded-full text-xs font-bold border transition-all ${hasReacted
-                                ? "bg-indigo-50 border-indigo-200 text-indigo-600"
-                                : "bg-white border-slate-100 text-slate-500 hover:border-slate-200"
-                                }`}
-                            >
-                              <span>{emoji}</span>
-                              <span className={hasReacted ? "text-indigo-400" : "text-slate-300"}>{reacts.length}</span>
-                            </button>
-                          )
-                        })}
-                      </div>
-                    )}
-                  </div>
-                </div>
-              );
-            })
+            messages.map((msg) => (
+              <MessageItem key={msg.id} msg={msg} />
+            ))
           )}
           <div ref={messagesEndRef} />
         </div>
 
         {/* Message Input */}
-        <div className="px-10 pb-8 pt-2">
-          <form onSubmit={sendMessage} className="relative group max-w-4xl mx-auto shadow-sm">
+        <div className="px-10 pb-8 pt-2 shrink-0">
+          <form onSubmit={(e) => sendMessage(e)} className="relative group max-w-4xl mx-auto shadow-sm">
             <div className="absolute -inset-2 bg-indigo-500/5 rounded-[2rem] scale-95 opacity-0 group-focus-within:scale-100 group-focus-within:opacity-100 transition-all duration-500"></div>
             <div className="relative flex items-end gap-3 bg-slate-50 border border-slate-200 rounded-[1.5rem] p-3 transition-colors group-focus-within:bg-white group-focus-within:border-indigo-200">
               <div className="p-2 mb-1.5 hover:bg-slate-200 rounded-lg transition-colors cursor-pointer text-slate-400">
@@ -521,6 +645,55 @@ export default function Home() {
           </div>
         </div>
       </div>
+
+      {/* Thread Content Sidebar */}
+      {threadParent && (
+        <div className="w-[450px] border-l border-slate-100 bg-white flex flex-col animate-in slide-in-from-right duration-300">
+          <div className="h-20 border-b border-slate-100 flex items-center px-6 justify-between bg-white shrink-0">
+            <div>
+              <span className="font-bold text-lg tracking-tight text-slate-900">スレッド</span>
+              <div className="flex items-center gap-1.5 mt-0.5">
+                <span className="text-[11px] text-slate-400 font-medium">#{activeChannel?.name}</span>
+              </div>
+            </div>
+            <button onClick={() => setThreadParent(null)} className="p-2 text-slate-400 hover:text-slate-600">
+              <Plus className="w-6 h-6 rotate-45" />
+            </button>
+          </div>
+
+          <div className="flex-1 overflow-y-auto p-6 space-y-6">
+            {/* Parent Message */}
+            <div className="pb-6 border-b border-slate-50">
+              <MessageItem msg={threadParent} isThread={true} />
+            </div>
+
+            {/* Thread Replies */}
+            <div className="space-y-4">
+              <div className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">{threadMessages.length} 返信</div>
+              {threadMessages.map(m => (
+                <MessageItem key={m.id} msg={m} isThread={true} />
+              ))}
+              <div ref={threadEndRef} />
+            </div>
+          </div>
+
+          <div className="p-6 border-t border-slate-50">
+            <form onSubmit={(e) => sendMessage(e, true)} className="relative group shadow-sm">
+              <div className="relative flex items-end gap-3 bg-slate-50 border border-slate-200 rounded-[1.2rem] p-2 transition-colors group-focus-within:bg-white group-focus-within:border-indigo-200">
+                <textarea
+                  value={newThreadMessage}
+                  onChange={(e) => setNewThreadMessage(e.target.value)}
+                  onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); sendMessage(e as any, true); } }}
+                  rows={1}
+                  placeholder="返信を送信..."
+                  className="flex-1 bg-transparent border-none py-2 px-2 text-slate-900 focus:outline-none focus:ring-0 font-medium placeholder:text-slate-400 text-sm resize-none scrollbar-hide max-h-32"
+                />
+                <button type="submit" className="mb-0.5 p-2 bg-indigo-600 rounded-lg text-white hover:bg-indigo-700 transition-all shadow-md shadow-indigo-600/10 active:scale-90" disabled={!newThreadMessage.trim()}><Send className="w-3 h-3" /></button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
