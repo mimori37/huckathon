@@ -130,20 +130,22 @@ export default function Home() {
           table: "reactions",
         },
         async (payload) => {
-          // Simplest way: just refetch messages or update local state
-          // For now, let's just update local state if the message exists
           if (payload.eventType === "INSERT") {
-            setMessages(prev => prev.map(m =>
-              m.id === payload.new.message_id
-                ? { ...m, reactions: [...(m.reactions || []), payload.new as Reaction] }
-                : m
-            ));
+            setMessages(prev => prev.map(m => {
+              if (m.id !== payload.new.message_id) return m;
+
+              const exists = m.reactions?.some(r => r.id === payload.new.id);
+              if (exists) return m;
+
+              return { ...m, reactions: [...(m.reactions || []), payload.new as Reaction] };
+            }));
           } else if (payload.eventType === "DELETE") {
-            setMessages(prev => prev.map(m =>
-              m.id === payload.old.message_id
-                ? { ...m, reactions: (m.reactions || []).filter(r => r.id !== payload.old.id) }
-                : m
-            ));
+            // In DELETE events, payload.old only contains the PRIMARY KEY (id) by default
+            // So we must scan all messages to find and remove the reaction with that id
+            setMessages(prev => prev.map(m => ({
+              ...m,
+              reactions: (m.reactions || []).filter(r => r.id !== payload.old.id)
+            })));
           }
         }
       )
@@ -325,8 +327,8 @@ export default function Home() {
               key={channel.id}
               onClick={() => setActiveChannel(channel)}
               className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-all group ${activeChannel?.id === channel.id
-                  ? "bg-white text-indigo-600 soft-shadow ring-1 ring-slate-100"
-                  : "text-slate-500 hover:bg-white hover:text-slate-800"
+                ? "bg-white text-indigo-600 soft-shadow ring-1 ring-slate-100"
+                : "text-slate-500 hover:bg-white hover:text-slate-800"
                 }`}
             >
               <Hash className={`w-4 h-4 ${activeChannel?.id === channel.id ? "text-indigo-500" : "text-slate-300 transition-colors group-hover:text-slate-400"}`} />
@@ -460,8 +462,8 @@ export default function Home() {
                               key={emoji}
                               onClick={() => toggleReaction(msg.id, emoji)}
                               className={`flex items-center gap-1.5 px-2 py-0.5 rounded-full text-xs font-bold border transition-all ${hasReacted
-                                  ? "bg-indigo-50 border-indigo-200 text-indigo-600"
-                                  : "bg-white border-slate-100 text-slate-500 hover:border-slate-200"
+                                ? "bg-indigo-50 border-indigo-200 text-indigo-600"
+                                : "bg-white border-slate-100 text-slate-500 hover:border-slate-200"
                                 }`}
                             >
                               <span>{emoji}</span>
